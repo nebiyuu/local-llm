@@ -2,6 +2,9 @@ import fitz  # PyMuPDF
 import requests
 import json
 import time
+from sentence_transformers import SentenceTransformer
+import gc
+
 
 def extract_text_from_pdf(pdf_path):
     doc = fitz.open(pdf_path)
@@ -31,7 +34,7 @@ def ask_ollama(context, question):
             {question}
             """,
         "stream": True,
-        "think": True
+        "think": False
     #     "options": {
     #     "repeat_penalty": 1.15,  # Prevents the loop
     #     "temperature": 0.8,      # Adds variety
@@ -70,6 +73,27 @@ def ask_ollama(context, question):
         print(f"Error: {e}")
         return None, None
     
+    
+    
+def chunk_text(text, chunk_size=100, overlap=10):
+    words = text.split()
+    chunks = []
+    i = 0
+    while i < len(words):
+        chunk = ' '.join(words[i:i + chunk_size])
+        chunks.append(chunk)
+        i += chunk_size - overlap  # overlap so chunks don't cut mid-idea
+    return chunks
+
+
+def embed_chunks(texts):
+    model = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
+    embeddings = model.encode(texts)
+    del model
+    gc.collect()
+    return embeddings
+
+
 if __name__ == "__main__":
     # all your test code here
     # --- EXECUTION ---

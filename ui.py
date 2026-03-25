@@ -1,6 +1,6 @@
 import re
 import gradio as gr
-from extract import extract_text_from_pdf, ask_ollama
+from extract import extract_text_from_pdf, ask_ollama,chunk_text,embed_chunks
 
 CSS = """
 @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap');
@@ -41,12 +41,18 @@ def clean_response(text: str) -> str:
 
 def handle_upload(files, chat_history):
     if not files:
+        print("No file uploaded.")
         chat_history = chat_history or []
         chat_history.append({"role": "assistant", "content": "⚠️ No file selected. Please upload a PDF."})
         return chat_history, "", "No document loaded.", "_No thinking yet._"
     file = files[0]
     try:
         text = extract_text_from_pdf(file.name)
+        chunks = chunk_text(text)
+        print(f"Total chunks: {len(chunks)}")  
+        embeddings = embed_chunks(chunks)
+        print(f"Number of embeddings: {len(embeddings)}")
+        print(f"Embedding shape: {embeddings[0].shape}")
     except Exception as e:
         chat_history = chat_history or []
         chat_history.append({"role": "assistant", "content": f"❌ Could not read PDF: {e}"})
