@@ -23,7 +23,7 @@ def extract_text_from_pdf(pdf_path):
 
 
 def ask_ollama(context, question):
-    url = "http://localhost:11434/api/generate"
+    url = "http://ollama:11434/api/generate"
     payload = {
         "model": "qwen3.5:0.8b",
         "prompt": f"""
