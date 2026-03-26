@@ -29,6 +29,10 @@ def ask_ollama(context, question):
     payload = {
         "model": "qwen3.5:0.8b",
         "prompt": f"""
+        if the question is not answerable based on the provided context, 
+        say "I don't know" or something similar. Do not attempt to fabricate an answer.
+        If you don't know, just say you don't know.
+        Do not try to use the context to make up an answer if it's not there.
         
         Context:
             {context}
@@ -98,12 +102,16 @@ def embed_chunks(texts):
 
 chroma_client = chromadb.Client()
 
-def store_in_chroma(chunks, embeddings):
+def store_in_chroma(chunks, embeddings, filename):
     collection = chroma_client.get_or_create_collection(name="documents")
+    # use filename + index as ID so multiple docs don't overwrite each other
+    ids = [f"{filename}_chunk_{i}" for i in range(len(chunks))]
+    metadatas = [{"source": filename} for _ in chunks]
     collection.add(
         documents=chunks,
         embeddings=embeddings.tolist(),
-        ids=[f"chunk_{i}" for i in range(len(chunks))]
+        ids=ids,
+        metadatas=metadatas
     )
     return collection
 
@@ -113,7 +121,9 @@ def query_chroma(collection, question_embedding, n_results=3):
         query_embeddings=question_embedding.tolist(),
         n_results=n_results
     )
-    return results["documents"][0]  # returns list of the top 3 chunks
+    chunks = results["documents"][0]
+    sources = [m["source"] for m in results["metadatas"][0]]
+    return chunks, sources
 
 
 if __name__ == "__main__":

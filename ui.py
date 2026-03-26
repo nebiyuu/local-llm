@@ -46,13 +46,15 @@ def handle_upload(files, chat_history):
         return chat_history, None, "No document loaded.", "_No thinking yet._"
     file = files[0]
     try:
-        text = extract_text_from_pdf(file.name)
-        chunks = chunk_text(text)
-        print(f"Total chunks: {len(chunks)}")
-        embeddings = embed_chunks(chunks)
-        print(f"Embedded {len(embeddings)} chunks")
-        collection = store_in_chroma(chunks, embeddings)
-        print("Stored in ChromaDB")
+        for file in files:
+            text = extract_text_from_pdf(file.name)
+            chunks = chunk_text(text)
+            print(f"Total chunks: {len(chunks)}")
+            embeddings = embed_chunks(chunks)
+            print(f"Embedded {len(embeddings)} chunks")
+            filename = file.name.split('/')[-1]
+            collection = store_in_chroma(chunks, embeddings, filename)
+            print("Stored in ChromaDB")
     except Exception as e:
         chat_history = chat_history or []
         chat_history.append({"role": "assistant", "content": f"❌ Could not read PDF: {e}"})
@@ -76,7 +78,7 @@ def submit_message(message, chat_history, collection):
     try:
         # embed the question and retrieve relevant chunks
         question_embedding = embed_chunks([message])
-        relevant_chunks = query_chroma(collection, question_embedding)
+        relevant_chunks,source = query_chroma(collection, question_embedding)
         context = "\n\n".join(relevant_chunks)
         print(f"Retrieved {len(relevant_chunks)} chunks for query")
 
