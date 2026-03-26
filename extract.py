@@ -81,7 +81,7 @@ def ask_ollama(context, question):
     
     
     
-def chunk_text(text, chunk_size=100, overlap=10):
+def chunk_text(text, chunk_size=500, overlap=100):
     words = text.split()
     chunks = []
     i = 0
