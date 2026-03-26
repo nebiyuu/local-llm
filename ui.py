@@ -1,6 +1,6 @@
 import re
 import gradio as gr
-from extract import extract_text_from_pdf, ask_ollama,chunk_text,embed_chunks
+from extract import extract_text_from_pdf, ask_ollama, chunk_text, embed_chunks, store_in_chroma, query_chroma
 
 CSS = """
 @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap');
@@ -41,47 +41,60 @@ def clean_response(text: str) -> str:
 
 def handle_upload(files, chat_history):
     if not files:
-        print("No file uploaded.")
         chat_history = chat_history or []
         chat_history.append({"role": "assistant", "content": "⚠️ No file selected. Please upload a PDF."})
-        return chat_history, "", "No document loaded.", "_No thinking yet._"
+        return chat_history, None, "No document loaded.", "_No thinking yet._"
     file = files[0]
     try:
         text = extract_text_from_pdf(file.name)
         chunks = chunk_text(text)
-        print(f"Total chunks: {len(chunks)}")  
+        print(f"Total chunks: {len(chunks)}")
         embeddings = embed_chunks(chunks)
-        print(f"Number of embeddings: {len(embeddings)}")
-        print(f"Embedding shape: {embeddings[0].shape}")
+        print(f"Embedded {len(embeddings)} chunks")
+        collection = store_in_chroma(chunks, embeddings)
+        print("Stored in ChromaDB")
     except Exception as e:
         chat_history = chat_history or []
         chat_history.append({"role": "assistant", "content": f"❌ Could not read PDF: {e}"})
-        return chat_history, "", "Failed to load document.", "_No thinking yet._"
+        return chat_history, None, "Failed to load document.", "_No thinking yet._"
     word_count = len(text.split())
     chat_history = chat_history or []
-    chat_history.append({"role": "assistant", "content": f"✅ Document loaded — {word_count:,} words. Ask me anything about it."})
-    status = f"● {file.name.split('/')[-1]}  ·  {word_count:,} words"
-    return chat_history, text, status, "_No thinking yet — ask a question first._"
+    chat_history.append({"role": "assistant", "content": f"✅ Document loaded — {word_count:,} words · {len(chunks)} chunks. Ask me anything about it."})
+    status = f"● {file.name.split('/')[-1]}  ·  {word_count:,} words  ·  {len(chunks)} chunks"
+    return chat_history, collection, status, "_No thinking yet — ask a question first._"
 
-def submit_message(message, chat_history, context_text):
+def submit_message(message, chat_history, collection):
     if not message.strip():
         return "", chat_history, gr.update()
     chat_history = chat_history or []
     chat_history.append({"role": "user", "content": message})
+
+    if collection is None:
+        chat_history.append({"role": "assistant", "content": "⚠️ No document loaded. Please upload a PDF first."})
+        return "", chat_history, gr.update()
+
     try:
-        raw_answer, raw_thinking = ask_ollama(context_text or "", message)
+        # embed the question and retrieve relevant chunks
+        question_embedding = embed_chunks([message])
+        relevant_chunks = query_chroma(collection, question_embedding)
+        context = "\n\n".join(relevant_chunks)
+        print(f"Retrieved {len(relevant_chunks)} chunks for query")
+
+        raw_answer, raw_thinking = ask_ollama(context, message)
         answer   = clean_response(raw_answer   or "(no response)")
         thinking = clean_response(raw_thinking or "")
     except Exception as e:
         answer   = f"❌ Error: {e}"
         thinking = ""
+
     chat_history.append({"role": "assistant", "content": answer})
     thinking_display = thinking if thinking else "_Thinking was not enabled or produced no output for this response._"
     return "", chat_history, thinking_display
 
 def main():
     with gr.Blocks(title="DocChat") as demo:
-        context_state = gr.State("")
+        # now stores a chroma collection object instead of raw text
+        collection_state = gr.State(None)
 
         with gr.Column(elem_id="header"):
             gr.HTML("<h1>DOCCHAT</h1><p>local · private · offline — powered by qwen via ollama</p>")
@@ -110,9 +123,9 @@ def main():
                 with gr.Accordion("🧠  Model Thinking", open=False, elem_id="thinking-panel"):
                     thinking_box = gr.Markdown(value="_No thinking yet — ask a question first._", elem_id="thinking-content")
 
-        load_btn.click(fn=handle_upload, inputs=[pdf_input, chatbot], outputs=[chatbot, context_state, status_box, thinking_box])
-        send_btn.click(fn=submit_message, inputs=[msg_box, chatbot, context_state], outputs=[msg_box, chatbot, thinking_box])
-        msg_box.submit(fn=submit_message, inputs=[msg_box, chatbot, context_state], outputs=[msg_box, chatbot, thinking_box])
+        load_btn.click(fn=handle_upload, inputs=[pdf_input, chatbot], outputs=[chatbot, collection_state, status_box, thinking_box])
+        send_btn.click(fn=submit_message, inputs=[msg_box, chatbot, collection_state], outputs=[msg_box, chatbot, thinking_box])
+        msg_box.submit(fn=submit_message, inputs=[msg_box, chatbot, collection_state], outputs=[msg_box, chatbot, thinking_box])
 
     demo.launch(css=CSS)
 

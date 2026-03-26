@@ -4,6 +4,8 @@ import json
 import time
 from sentence_transformers import SentenceTransformer
 import gc
+import chromadb
+
 
 
 def extract_text_from_pdf(pdf_path):
@@ -23,7 +25,7 @@ def extract_text_from_pdf(pdf_path):
 
 
 def ask_ollama(context, question):
-    url = "http://ollama:11434/api/generate"
+    url = "http://localhost:11434/api/generate"
     payload = {
         "model": "qwen3.5:0.8b",
         "prompt": f"""
@@ -94,25 +96,38 @@ def embed_chunks(texts):
     return embeddings
 
 
+chroma_client = chromadb.Client()
+
+def store_in_chroma(chunks, embeddings):
+    collection = chroma_client.get_or_create_collection(name="documents")
+    collection.add(
+        documents=chunks,
+        embeddings=embeddings.tolist(),
+        ids=[f"chunk_{i}" for i in range(len(chunks))]
+    )
+    return collection
+
+
+def query_chroma(collection, question_embedding, n_results=3):
+    results = collection.query(
+        query_embeddings=question_embedding.tolist(),
+        n_results=n_results
+    )
+    return results["documents"][0]  # returns list of the top 3 chunks
+
+
 if __name__ == "__main__":
-    # all your test code here
-    # --- EXECUTION ---
-    pdf_text = extract_text_from_pdf("testpdfs/Nebiyu Essayas.pdf") # Using your function from Stage 2
-    user_query = "what school did he go to"  # Example question about the CV
+    text = extract_text_from_pdf("testpdfs/Automata Course Outline.pdf")
+    chunks = chunk_text(text)
+    embeddings = embed_chunks(chunks)
     
-    print("Thinking...")
+    collection = store_in_chroma(chunks, embeddings)
     
-    # Assuming 'pdf_text' contains your full CV text from Stage 2
-    short_context = pdf_text[:1000] # Just the first 1000 characters
+    question = "what is the Course Code?"
+    question_embedding = embed_chunks([question])
     
-    # print(f"--- Sending a smaller chunk ({len(short_context)} chars) ---")
-    
-    # Now call your function with the smaller chunk
-    # Using the streaming function from before is still recommended!
-    answer = ask_ollama(pdf_text, user_query)
-    print(f"\nOllama's Answer:\n{answer}")
-    
-    
-    # answer = ask_ollama(pdf_text, user_query)
-    # print(f"\nOllama's Answer:\n{answer}")
-    
+    relevant_chunks = query_chroma(collection, question_embedding)
+    print("Relevant chunks:")
+    for chunk in relevant_chunks:
+        print(chunk)
+        print("---")  
