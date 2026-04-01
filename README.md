@@ -1,43 +1,87 @@
-# DocChat: Local PDF Chatbot
+# DocChat — Local RAG PDF Chatbot
 
-DocChat is a local, private, offline chatbot that lets you upload a PDF and ask questions about its content. Powered by [Gradio](https://gradio.app/) for the UI, [PyMuPDF](https://pymupdf.readthedocs.io/) for PDF extraction, and [Ollama](https://ollama.com/) for local LLM inference (using the Qwen model).
+DocChat is a fully local, private, offline PDF chatbot built with RAG (Retrieval Augmented Generation). Upload one or more PDFs and ask questions — only the relevant parts of the document are sent to the model, not the whole thing.
+
+No API keys. No data leaves your machine.
+
+## How it works
+
+Instead of dumping the entire PDF into the prompt, DocChat uses a two-step RAG pipeline:
+
+**Indexing** (on upload)
+1. Extract text from PDF using PyMuPDF
+2. Split text into overlapping chunks
+3. Embed each chunk into a vector using `sentence-transformers` (runs locally on CPU)
+4. Store chunks + vectors in ChromaDB
+
+**Retrieval** (on each question)
+1. Embed the user's question using the same model
+2. Query ChromaDB for the 3 most semantically similar chunks
+3. Send only those chunks to Ollama as context
+4. Return the answer
+
+This means DocChat works on large documents without overwhelming the model's context window.
 
 ## Features
-- Upload a PDF and chat with it instantly
-- All processing is local and private
-- Modern, beautiful Gradio UI
-- Model thinking/trace display
+
+- 100% local — no API keys, no internet required after setup
+- Multi-document support — upload multiple PDFs and search across all of them
+- RAG pipeline built from scratch — no LangChain, no n8n
+- Source tracking — knows which chunk came from which file
+- Model thinking display — see the model's reasoning process
+- Clean, minimal dark UI
+
+## Stack
+
+| Component | Library |
+|---|---|
+| UI | Gradio |
+| PDF extraction | PyMuPDF |
+| Chunking | plain Python |
+| Embeddings | sentence-transformers (`all-MiniLM-L6-v2`) |
+| Vector storage | ChromaDB |
+| LLM inference | Ollama (`qwen3.5:0.8b`) |
 
 ## Quickstart
 
-1. **Install requirements** (preferably in a virtual environment):
-	```bash
-	pip install -r requirments.txt
-	```
+1. **Install requirements:**
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-2. **Start Ollama** and pull the Qwen model (if not already running):
-	```bash
-	ollama serve
-	ollama pull qwen3.5:0.8b(or a model of you choice)
-	```
+2. **Start Ollama and pull the model:**
+   ```bash
+   ollama serve
+   ollama pull qwen3.5:0.8b
+   ```
 
 3. **Run the app:**
-	```bash
-	python ui.py
-	```
+   ```bash
+   python ui.py
+   ```
 
-4. **Open the Gradio link** in your browser at *local URL:  http://127.0.0.1:7865*, upload a PDF, and start chatting!
+4. Open `http://127.0.0.1:7860` in your browser, upload a PDF, and start chatting.
+
+## Docker
+
+```bash
+docker build -t docchat .
+docker run -p 7860:7860 --add-host=host.docker.internal:host-gateway docchat
+```
+
+Ollama must be running on your host machine.
 
 ## File Overview
 
-- `ui.py` — Gradio chat interface
-- `extract.py` — PDF extraction and model query logic
-- `requirments.txt` — Python dependencies
+| File | Purpose |
+|---|---|
+| `ui.py` | Gradio interface and app logic |
+| `extract.py` | PDF extraction, chunking, embedding, ChromaDB, Ollama |
+| `requirements.txt` | Python dependencies |
+| `Dockerfile` | Container setup |
 
 ## Notes
-- Requires [Ollama](https://ollama.com/) running locally on port 11434
-- Only PDF files are supported for upload
-- All data stays on your machine
 
-
-
+- Embedding runs on CPU — no GPU required
+- Tested with `qwen3.5:0.8b` but any Ollama model works
+- ChromaDB stores in-memory per session — reloading the app clears the index

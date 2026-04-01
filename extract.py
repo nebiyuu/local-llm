@@ -2,6 +2,11 @@ import fitz  # PyMuPDF
 import requests
 import json
 import time
+from sentence_transformers import SentenceTransformer
+import gc
+import chromadb
+
+
 
 def extract_text_from_pdf(pdf_path):
     doc = fitz.open(pdf_path)
@@ -24,6 +29,10 @@ def ask_ollama(context, question):
     payload = {
         "model": "qwen3.5:0.8b",
         "prompt": f"""
+        if the question is not answerable based on the provided context, 
+        say "I don't know" or something similar. Do not attempt to fabricate an answer.
+        If you don't know, just say you don't know.
+        Do not try to use the context to make up an answer if it's not there.
         
         Context:
             {context}
@@ -31,7 +40,7 @@ def ask_ollama(context, question):
             {question}
             """,
         "stream": True,
-        "think": True
+        "think": False
     #     "options": {
     #     "repeat_penalty": 1.15,  # Prevents the loop
     #     "temperature": 0.8,      # Adds variety
@@ -70,25 +79,65 @@ def ask_ollama(context, question):
         print(f"Error: {e}")
         return None, None
     
+    
+    
+def chunk_text(text, chunk_size=500, overlap=100):
+    words = text.split()
+    chunks = []
+    i = 0
+    while i < len(words):
+        chunk = ' '.join(words[i:i + chunk_size])
+        chunks.append(chunk)
+        i += chunk_size - overlap  # overlap so chunks don't cut mid-idea
+    return chunks
+
+
+def embed_chunks(texts):
+    model = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
+    embeddings = model.encode(texts)
+    del model
+    gc.collect()
+    return embeddings
+
+
+chroma_client = chromadb.Client()
+
+def store_in_chroma(chunks, embeddings, filename):
+    collection = chroma_client.get_or_create_collection(name="documents")
+    # use filename + index as ID so multiple docs don't overwrite each other
+    ids = [f"{filename}_chunk_{i}" for i in range(len(chunks))]
+    metadatas = [{"source": filename} for _ in chunks]
+    collection.add(
+        documents=chunks,
+        embeddings=embeddings.tolist(),
+        ids=ids,
+        metadatas=metadatas
+    )
+    return collection
+
+
+def query_chroma(collection, question_embedding, n_results=3):
+    results = collection.query(
+        query_embeddings=question_embedding.tolist(),
+        n_results=n_results
+    )
+    chunks = results["documents"][0]
+    sources = [m["source"] for m in results["metadatas"][0]]
+    return chunks, sources
+
+
 if __name__ == "__main__":
-    # all your test code here
-    # --- EXECUTION ---
-    pdf_text = extract_text_from_pdf("testpdfs/Nebiyu Essayas.pdf") # Using your function from Stage 2
-    user_query = "what school did he go to"  # Example question about the CV
+    text = extract_text_from_pdf("testpdfs/Automata Course Outline.pdf")
+    chunks = chunk_text(text)
+    embeddings = embed_chunks(chunks)
     
-    print("Thinking...")
+    collection = store_in_chroma(chunks, embeddings)
     
-    # Assuming 'pdf_text' contains your full CV text from Stage 2
-    short_context = pdf_text[:1000] # Just the first 1000 characters
+    question = "what is the Course Code?"
+    question_embedding = embed_chunks([question])
     
-    # print(f"--- Sending a smaller chunk ({len(short_context)} chars) ---")
-    
-    # Now call your function with the smaller chunk
-    # Using the streaming function from before is still recommended!
-    answer = ask_ollama(pdf_text, user_query)
-    print(f"\nOllama's Answer:\n{answer}")
-    
-    
-    # answer = ask_ollama(pdf_text, user_query)
-    # print(f"\nOllama's Answer:\n{answer}")
-    
+    relevant_chunks = query_chroma(collection, question_embedding)
+    print("Relevant chunks:")
+    for chunk in relevant_chunks:
+        print(chunk)
+        print("---")  

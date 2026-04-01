@@ -1,4 +1,5 @@
 pymupdf
 requests
 gradio
-requestsgit 
+sentence-transformers
+chromadb
