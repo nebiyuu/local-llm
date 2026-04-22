@@ -29,10 +29,9 @@ def ask_ollama(context, question):
     payload = {
         "model": "qwen3.5:0.8b",
         "prompt": f"""
-        if the question is not answerable based on the provided context, 
-        say "I don't know" or something similar. Do not attempt to fabricate an answer.
-        If you don't know, just say you don't know.
-        Do not try to use the context to make up an answer if it's not there.
+        Based on the provided context, answer the user's question as accurately as possible.
+        If the context doesn't contain the specific information needed, try to provide a helpful response based on what is available.
+        Only say "I don't know" if the context is completely irrelevant to the question.
         
         Context:
             {context}
@@ -60,9 +59,16 @@ def ask_ollama(context, question):
         for line in response.iter_lines():
             if line:
                 data = json.loads(line)
-                full_response += data.get("response", "")                
-                full_thinking += data.get("thinking", "")
-                print(data.get("response", ""), end="", flush=True)  # Print response as it comes in
+                chunk = data.get("response", "")
+                thinking_chunk = data.get("thinking", "")
+                
+                full_response += chunk                
+                full_thinking += thinking_chunk
+                
+                print(chunk, end="", flush=True)  # Print response as it comes in
+                
+                # Yield the current chunk for streaming
+                yield chunk, thinking_chunk
 
                 if data.get("done"):
                     break
@@ -73,15 +79,16 @@ def ask_ollama(context, question):
         elapsed = time.time() - start_time
         print(f"\n[Elapsed time: {elapsed:.2f} s]")
 
-        return full_response, full_thinking
+        # Final yield to inchdicate completion
+        yield None, full_thinking if full_thinking else ""
 
     except Exception as e:
         print(f"Error: {e}")
-        return None, None
+        yield None, f"Error: {e}"
     
     
     
-def chunk_text(text, chunk_size=500, overlap=100):
+def chunk_text(text, chunk_size=800, overlap=150):
     words = text.split()
     chunks = []
     i = 0
@@ -116,7 +123,7 @@ def store_in_chroma(chunks, embeddings, filename):
     return collection
 
 
-def query_chroma(collection, question_embedding, n_results=3):
+def query_chroma(collection, question_embedding, n_results=5):
     results = collection.query(
         query_embeddings=question_embedding.tolist(),
         n_results=n_results
