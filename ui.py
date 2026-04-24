@@ -1,6 +1,13 @@
 import re
 import gradio as gr
-from extract import extract_text_from_pdf, ask_ollama, chunk_text, embed_chunks, store_in_chroma, query_chroma
+from extract import extract_text_from_pdf ,ask_ollama, chunk_text, embed_chunks, store_in_chroma, query_chroma, get_model, delete_from_chroma, get_document_content, get_all_documents
+import threading
+
+def load_model_in_background():
+    """Load the model in background after UI starts"""
+    print("Loading embedding model in background...")
+    get_model()
+    print("Model loaded successfully!")
 
 CSS = """
 @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap');
@@ -101,6 +108,38 @@ footer { display: none !important; }
 #pdf-list-container .pdf-icon {
     color: #ff6b6b;
     font-size: 1rem;
+}
+
+#pdf-list-container .pdf-item-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 0.25rem;
+}
+
+#pdf-list-container .pdf-item-btn {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    transition: all 0.2s ease;
+}
+
+#pdf-list-container .pdf-item-btn:hover {
+    background: var(--surface-hover);
+    color: var(--text);
+}
+
+#pdf-list-container .pdf-item-btn.delete:hover {
+    color: #ff6b6b;
+}
+
+#pdf-list-container .doc-stats {
+    font-size: 0.65rem;
+    color: var(--muted);
+    margin-left: 0.5rem;
 }
 
 #pdf-list-container .empty-state {
@@ -204,6 +243,78 @@ footer { display: none !important; }
     display: inline-block;
     margin-top: 0.75rem;
 }
+
+/* Document View Modal */
+#doc-view-modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.8);
+    z-index: 1000;
+}
+
+#doc-view-modal.active {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#doc-view-modal .modal-content {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    width: 80%;
+    max-width: 800px;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+}
+
+#doc-view-modal .modal-header {
+    padding: 1rem;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+#doc-view-modal .modal-title {
+    font-family: 'Syne', sans-serif;
+    color: var(--accent);
+    font-size: 1rem;
+}
+
+#doc-view-modal .modal-close {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    font-size: 1.5rem;
+    cursor: pointer;
+}
+
+#doc-view-modal .modal-body {
+    padding: 1rem;
+    overflow-y: auto;
+    flex: 1;
+    font-size: 0.8rem;
+    line-height: 1.6;
+    white-space: pre-wrap;
+}
+
+function deleteDoc(filename) {
+    if(confirm('Delete ' + filename + '?')) {
+        document.getElementById('delete-trigger').value = filename;
+        document.getElementById('delete-trigger').dispatchEvent(new Event('change'));
+    }
+}
+
+function viewDoc(filename) {
+    document.getElementById('view-trigger').value = filename;
+    document.getElementById('view-trigger').dispatchEvent(new Event('change'));
+}
 """
 
 def clean_response(text: str) -> str:
@@ -237,10 +348,9 @@ def handle_upload(files, chat_history, file_names):
         chat_history.append({"role": "assistant", "content": f"❌ Error: {e}"})
         return chat_history, None, "Failed.", "_No thinking yet._", file_names, "_No files yet_", "0 files loaded"
 
-    # Build HTML for PDF list
     if file_names:
         pdf_items_html = "".join([
-            f'<div class="pdf-item"><span class="pdf-icon">📄</span>{f}</div>' 
+            f'<div class="pdf-item"><span class="pdf-icon">📄</span><span class="pdf-name">{f}</span><span class="doc-stats">{f}</span><div class="pdf-item-actions"><button class="pdf-item-btn view" onclick="viewDoc(\'{f}\')">👁️</button><button class="pdf-item-btn delete" onclick="deleteDoc(\'{f}\')">🗑️</button></div></div>' 
             for f in file_names
         ])
     else:
@@ -254,6 +364,40 @@ def handle_upload(files, chat_history, file_names):
     })
 
     return chat_history, collection, "● Files loaded", "_Ready._", file_names, pdf_items_html, file_count_html
+
+
+def handle_delete(filename, chat_history, file_names):
+    chat_history = chat_history or []
+    file_names = file_names or []
+    file_names = [f for f in file_names if f != filename]
+    delete_from_chroma(filename)
+    
+    if file_names:
+        pdf_items_html = "".join([
+            f'<div class="pdf-item"><span class="pdf-icon">📄</span><span class="pdf-name">{f}</span><span class="doc-stats">{f}</span><div class="pdf-item-actions"><button class="pdf-item-btn view" onclick="viewDoc(\'{f}\')">👁️</button><button class="pdf-item-btn delete" onclick="deleteDoc(\'{f}\')">🗑️</button></div></div>' 
+            for f in file_names
+        ])
+    else:
+        pdf_items_html = '<div class="empty-state">No documents loaded yet. Upload PDFs below to get started!</div>'
+    
+    file_count_html = f"{len(file_names)} file{'s' if len(file_names) != 1 else ''} loaded"
+    
+    chat_history.append({
+        "role": "assistant",
+        "content": f"🗑️ Deleted {filename}."
+    })
+    
+    return chat_history, file_names, pdf_items_html, file_count_html, f"Deleted {filename}", ""
+
+
+def handle_view(filename):
+    content = get_document_content(filename)
+    if content:
+        full_text = "\n\n---\n\n".join(content[:10])
+        if len(content) > 10:
+            full_text += f"\n\n... and {len(content) - 10} more chunks"
+        return full_text
+    return "No content found."
 
 
 def submit_message(message, chat_history, collection):
@@ -276,9 +420,11 @@ def submit_message(message, chat_history, collection):
     yield "", chat_history, "_Thinking..._"
 
     try:
-        question_embedding = embed_chunks([message])
+        question_embedding = embed_chunks([message]) 
         relevant_chunks, source = query_chroma(collection, question_embedding)
+
         context = "\n\n".join(relevant_chunks)
+        print("relevant chunks:", relevant_chunks)
 
         full_response = ""
         full_thinking = ""
@@ -360,12 +506,27 @@ def main():
 
         # References for dynamic updates
         pdf_items_container = gr.HTML(elem_id="pdf-items")
+        view_trigger = gr.Textbox(visible=False)
+        delete_trigger = gr.Textbox(visible=False)
+        view_content = gr.Textbox(visible=False)
         
         # Auto upload handler
         add_file_btn.change(
             fn=handle_upload,
             inputs=[add_file_btn, chatbot, file_names_state],
             outputs=[chatbot, collection_state, status_box, thinking_box, file_names_state, pdf_items_container, file_count_display]
+        )
+        
+        delete_trigger.change(
+            fn=handle_delete,
+            inputs=[delete_trigger, chatbot, file_names_state],
+            outputs=[chatbot, file_names_state, pdf_items_container, file_count_display, status_box, thinking_box]
+        )
+        
+        view_trigger.change(
+            fn=handle_view,
+            inputs=[view_trigger],
+            outputs=[view_content]
         )
 
         send_btn.click(
@@ -382,6 +543,10 @@ def main():
             show_progress=False
         )
 
+    # Start background model loading thread
+    model_thread = threading.Thread(target=load_model_in_background, daemon=True)
+    model_thread.start()
+    
     demo.launch(css=CSS)
 
 
