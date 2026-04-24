@@ -2,10 +2,10 @@ import fitz  # PyMuPDF
 import requests
 import json
 import time
-import os
 from sentence_transformers import SentenceTransformer
 import gc
 import chromadb
+import os
 
 # Global model instance
 _model = None
@@ -13,16 +13,29 @@ _model = None
 def get_model():
     global _model
     if _model is None:
-        local_model_path = "models/amharic-embed"
-        if os.path.exists(local_model_path):
-            model_path = local_model_path
+        model_name = 'rasyosef/RoBERTa-Amharic-Embed-Medium'
+        
+        # Check if model exists in models/ directory first
+        models_dir = "./models"
+        cache_path = "./model_cache"
+        
+        # Look for the actual model directory
+        models_path = None
+        if os.path.exists(models_dir):
+            # Find the first subdirectory in models/ (should be the model)
+            for item in os.listdir(models_dir):
+                item_path = os.path.join(models_dir, item)
+                if os.path.isdir(item_path):
+                    models_path = item_path
+                    break
+        
+        if models_path and os.path.exists(models_path):
+            print(f"Model found in {models_path}")
+            # Load from local path directly
+            _model = SentenceTransformer(models_path, device='cpu')
         else:
-            model_path = 'rasyosef/RoBERTa-Amharic-Embed-Medium'
-        _model = SentenceTransformer(
-            model_path,
-            device='cpu',
-            cache_folder="./model_cache"
-        )
+            print(f"Model not found in {models_dir}, downloading to cache folder {cache_path}")
+            _model = SentenceTransformer(model_name, device='cpu', cache_folder=cache_path)
     return _model
 
 
@@ -49,8 +62,7 @@ def ask_ollama(context, question):
         "model": "qwen3.5:0.8b",
         "prompt": f"""
         Based on the provided context, answer the user's question as accurately as possible.
-        If the context doesn't contain the specific information needed, 
-        try to provide a helpful response based on what is available.
+        If the context doesn't contain the specific information needed, try to provide a helpful response based on what is available.
         Only say "I don't know" if the context is completely irrelevant to the question.
         
         Context:
@@ -125,10 +137,11 @@ def embed_chunks(texts):
     return embeddings
 
 
-chroma_client = chromadb.PersistentClient(path="./chroma_db")
+chroma_client = chromadb.Client()
 
 def store_in_chroma(chunks, embeddings, filename):
     collection = chroma_client.get_or_create_collection(name="documents")
+    # use filename + index as ID so multiple docs don't overwrite each other
     ids = [f"{filename}_chunk_{i}" for i in range(len(chunks))]
     metadatas = [{"source": filename} for _ in chunks]
     collection.add(
@@ -140,45 +153,6 @@ def store_in_chroma(chunks, embeddings, filename):
     return collection
 
 
-def delete_from_chroma(filename):
-    collection = chroma_client.get_or_create_collection(name="documents")
-    try:
-        collection.delete(where={"source": filename})
-        return True
-    except Exception as e:
-        print(f"Delete error: {e}")
-        return False
-
-
-def get_document_content(filename):
-    collection = chroma_client.get_or_create_collection(name="documents")
-    try:
-        results = collection.get(where={"source": filename})
-        if results and results.get("documents"):
-            return results["documents"]
-        return []
-    except Exception as e:
-        print(f"Get doc error: {e}")
-        return []
-
-
-def get_all_documents():
-    collection = chroma_client.get_or_create_collection(name="documents")
-    try:
-        results = collection.get()
-        docs = {}
-        for doc, meta in zip(results.get("documents", []), results.get("metadatas", [])):
-            src = meta.get("source", "unknown")
-            if src not in docs:
-                docs[src] = {"chunks": [], "count": 0}
-            docs[src]["chunks"].append(doc)
-            docs[src]["count"] += 1
-        return docs
-    except Exception as e:
-        print(f"Get all docs error: {e}")
-        return {}
-
-
 def query_chroma(collection, question_embedding, n_results=5):
     results = collection.query(
         query_embeddings=question_embedding.tolist(),
@@ -186,4 +160,21 @@ def query_chroma(collection, question_embedding, n_results=5):
     )
     chunks = results["documents"][0]
     sources = [m["source"] for m in results["metadatas"][0]]
-    return chunks, sources  
+    return chunks, sources
+
+
+if __name__ == "__main__":
+    text = extract_text_from_pdf("testpdfs/Automata Course Outline.pdf")
+    chunks = chunk_text(text)
+    embeddings = embed_chunks(chunks)
+    
+    collection = store_in_chroma(chunks, embeddings)
+    
+    question = "what is the Course Code?"
+    question_embedding = embed_chunks([question])
+    
+    relevant_chunks = query_chroma(collection, question_embedding)
+    print("Relevant chunks:")
+    for chunk in relevant_chunks:
+        print(chunk)
+        print("---")  
