@@ -3,3 +3,5 @@ requests
 gradio
 sentence-transformers
 chromadb
+pytest
+pytest-asyncio
