@@ -1,0 +1,11 @@
+pymupdf
+requests
+gradio
+sentence-transformers
+chromadb
+pydantic>=2.0
+pydantic-settings>=2.0
+
+[dev]
+pytest
+pytest-asyncio

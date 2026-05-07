@@ -8,20 +8,20 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first (better layer caching)
-COPY requirments.txt .
+COPY requirements.txt .
 
 # Install Python dependencies
-RUN pip install --no-cache-dir -r requirments.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application source
+COPY src/ ./src/
+COPY pyproject.toml .
 
 # Pre-download the embedding model so it's baked into the image
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2', device='cpu')"
-
-# Copy app files
-COPY extract.py .
-COPY ui.py .
+RUN python -c "from sentence_transformers import SentenceTransformer; \
+    SentenceTransformer('rasyosef/RoBERTa-Amharic-Embed-Medium', device='cpu')"
 
 # Gradio port
 EXPOSE 7860
 
-
-CMD ["python", "ui.py"]
+CMD ["python", "-m", "docchat"]

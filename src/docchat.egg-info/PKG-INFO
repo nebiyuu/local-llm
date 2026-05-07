@@ -1,0 +1,15 @@
+Metadata-Version: 2.4
+Name: docchat
+Version: 0.1.0
+Summary: RAG-based document chat with local LLM
+Requires-Python: >=3.11
+Requires-Dist: pymupdf
+Requires-Dist: requests
+Requires-Dist: gradio
+Requires-Dist: sentence-transformers
+Requires-Dist: chromadb
+Requires-Dist: pydantic>=2.0
+Requires-Dist: pydantic-settings>=2.0
+Provides-Extra: dev
+Requires-Dist: pytest; extra == "dev"
+Requires-Dist: pytest-asyncio; extra == "dev"

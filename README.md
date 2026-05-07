@@ -16,7 +16,7 @@ Instead of dumping the entire PDF into the prompt, DocChat uses a two-step RAG p
 
 **Retrieval** (on each question)
 1. Embed the user's question using the same model
-2. Query ChromaDB for the 3 most semantically similar chunks
+2. Query ChromaDB for the 5 most semantically similar chunks
 3. Send only those chunks to Ollama as context
 4. Return the answer
 
@@ -38,7 +38,7 @@ This means DocChat works on large documents without overwhelming the model's con
 | UI | Gradio |
 | PDF extraction | PyMuPDF |
 | Chunking | plain Python |
-| Embeddings | sentence-transformers (`all-MiniLM-L6-v2`) |
+| Embeddings | sentence-transformers (`rasyosef/RoBERTa-Amharic-Embed-Medium`) |
 | Vector storage | ChromaDB |
 | LLM inference | Ollama (`qwen3.5:0.8b`) |
 
@@ -46,7 +46,7 @@ This means DocChat works on large documents without overwhelming the model's con
 
 1. **Install requirements:**
    ```bash
-   pip install -r requirements.txt
+   pip install -e ".[dev]"
    ```
 
 2. **Start Ollama and pull the model:**
@@ -57,7 +57,7 @@ This means DocChat works on large documents without overwhelming the model's con
 
 3. **Run the app:**
    ```bash
-   python ui.py
+   python -m docchat
    ```
 
 4. Open `http://127.0.0.1:7860` in your browser, upload a PDF, and start chatting.
@@ -71,17 +71,35 @@ docker run -p 7860:7860 --add-host=host.docker.internal:host-gateway docchat
 
 Ollama must be running on your host machine.
 
-## File Overview
+## Project Structure
+
+```
+src/docchat/
+  core/     pdf.py, chunker.py, embedding.py   # PDF→text, word-based chunking, sentence-transformers
+  store/    collection.py                      # ChromaDB DocumentCollection class (primary interface)
+  llm/      client.py                          # Ollama streaming client (generator, yields (chunk, thinking))
+  ui/       interface.py, styles.py, styles.css  # Gradio UI
+  config.py                                    # Settings (env-aware)
+```
+
+## Key Files
 
 | File | Purpose |
 |---|---|
-| `ui.py` | Gradio interface and app logic |
-| `extract.py` | PDF extraction, chunking, embedding, ChromaDB, Ollama |
-| `requirements.txt` | Python dependencies |
-| `Dockerfile` | Container setup |
+| `src/docchat/__main__.py` | Entry point that launches the UI |
+| `src/docchat/ui/interface.py` | Gradio interface and app logic |
+| `src/docchat/config.py` | Centralized settings with environment support |
+| `src/docchat/core/` | PDF extraction, chunking, and embedding modules |
+| `src/docchat/store/collection.py` | ChromaDB DocumentCollection interface |
+| `src/docchat/llm/client.py` | Ollama streaming client |
+| `pyproject.toml` | Package configuration and dependencies |
+| `requirements.txt` | Docker dependencies (synced with pyproject.toml) |
 
 ## Notes
 
 - Embedding runs on CPU — no GPU required
+- Uses Amharic-specific embedding model (`rasyosef/RoBERTa-Amharic-Embed-Medium`)
 - Tested with `qwen3.5:0.8b` but any Ollama model works
-- ChromaDB stores in-memory per session — reloading the app clears the index
+- ChromaDB persists to `./data/chroma_db/` by default
+- Configuration via environment variables with `DOCCHAT_` prefix
+- Run tests with `pytest` (requires `pip install -e ".[dev]"`)

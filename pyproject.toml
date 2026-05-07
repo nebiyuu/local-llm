@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "docchat"
+version = "0.1.0"
+description = "RAG-based document chat with local LLM"
+requires-python = ">=3.11"
+dependencies = [
+    "pymupdf",
+    "requests",
+    "gradio",
+    "sentence-transformers",
+    "chromadb",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.docchat]
+# Default configuration (can be overridden via environment variables)
+embedding_model = "rasyosef/RoBERTa-Amharic-Embed-Medium"
+chunk_size = 800
+chunk_overlap = 150
+n_retrieval_chunks = 5

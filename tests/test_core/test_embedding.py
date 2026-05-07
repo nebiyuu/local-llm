@@ -1,5 +1,5 @@
 import pytest
-from extract import get_model, embed_chunks
+from docchat.core.embedding import get_model, embed_chunks
 
 
 class TestGetModel:
